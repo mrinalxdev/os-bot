@@ -107,4 +107,44 @@ export class OsBot {
     const mentionsRegex = /@(\w+)/g;
     return [...body.matchAll(mentionsRegex)].map((match) => match[1]);
   }
+
+  private detectCodeLanguages(codeBlocks: string[]): string[] {
+    const languages = new Set<string>();
+    const languageHints: { [key: string]: string[] } = {
+      javascript: ["const", "let", "var", "function"],
+      python: ["def", "import", "class", "if __name__"],
+      java: ["public class", "private", "protected", "import java"],
+      typescript: ["interface", "type", "enum", "namespace"],
+    };
+
+    codeBlocks.forEach((block) => {
+      for (const [lang, hints] of Object.entries(languageHints)) {
+        if (hints.some((hint) => block.includes(hint))) {
+          languages.add(lang);
+          break;
+        }
+      }
+    });
+
+    return Array.from(languages);
+  }
+
+  private provideSuggestions(issue: Issue): string {
+    let suggestions = "Suggestions:\n";
+
+    if (issue.body.length < 50) {
+      suggestions +=
+        "- The issue description is quite short. Consider adding more details . \n";
+    }
+    if (!this.extractCodeBlock(issue.body.split("\n")).length) {
+      suggestions +=
+        "- No code blocks found. If applicable, consider adding relevant code snippets. \n";
+    }
+    if (!issue.labels.length) {
+      suggestions +=
+        "- No labels applied. Adding appropriate labels can help categorize the issue.\n";
+    }
+
+    return suggestions;
+  }
 }
