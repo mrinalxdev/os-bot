@@ -1,0 +1,21 @@
+{
+  "name": "os-bot",
+  "version": "1.0.0",
+  "description": "A bot to make you understand your open source issues",
+  "main": "index.js",
+  "scripts": {
+    "start": "ts-node src/index.ts"
+  },
+  "author": "Mrinal Pramanick",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^20.14.12",
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  },
+  "devDependencies": {
+    "@types/axios": "^0.14.0"
+  }
+}
