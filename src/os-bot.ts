@@ -1,4 +1,5 @@
 import axios from "axios";
+import fs from "fs/promises";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
 dotenv.config();
@@ -140,7 +141,7 @@ export class OsBot {
 
   async prioritizeIssue(issueNumber: number): Promise<string> {
     const issue = await this.fetchIssue(issueNumber);
-    const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const prompt = `
       Analyze the following GitHub issue and suggest a priority level (Low, Medium, High, Critical):
@@ -230,5 +231,60 @@ export class OsBot {
     }
 
     return suggestions;
+  }
+
+  async generateHtmlReport(issueNumber: number): Promise<string> {
+    const issue = await this.fetchIssue(issueNumber);
+    const analysis = this.generateAnalysis(issue);
+    const aiInsights = await this.getAIInsights(issue);
+    const suggestedLabels = await this.suggestLabels(issueNumber);
+    const priority = await this.prioritizeIssue(issueNumber);
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Issue Analysis Report</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+      </head>
+      <body class="bg-gray-100 p-8">
+        <div class="max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+          <div class="px-6 py-4">
+            <h1 class="text-3xl font-bold mb-4">Issue #${issue.number} Analysis</h1>
+            <h2 class="text-xl font-semibold mb-2">${issue.title}</h2>
+            <p class="text-gray-600 mb-4">Created by ${issue.user.login} on ${new Date(issue.created_at).toLocaleString()}</p>
+
+            <div class="mb-6">
+              <h3 class="text-lg font-semibold mb-2">Analysis:</h3>
+              <pre class="bg-gray-100 p-4 rounded">${analysis}</pre>
+            </div>
+
+            <div class="mb-6">
+              <h3 class="text-lg font-semibold mb-2">AI Insights:</h3>
+              <div class="bg-blue-50 p-4 rounded">${aiInsights}</div>
+            </div>
+
+            <div class="mb-6">
+              <h3 class="text-lg font-semibold mb-2">Suggested Labels:</h3>
+              <div class="flex flex-wrap gap-2">
+                ${suggestedLabels.map((label) => `<span class="bg-green-200 text-green-800 px-2 py-1 rounded">${label}</span>`).join("")}
+              </div>
+            </div>
+
+            <div class="mb-6">
+              <h3 class="text-lg font-semibold mb-2">Priority:</h3>
+              <p class="font-medium">${priority}</p>
+            </div>
+          </div>
+        </div>
+      </body>
+      </html>
+      `;
+
+    const filename = `issue-${issueNumber}-report.html`;
+    await fs.writeFile(filename, htmlContent);
+    return filename;
   }
 }

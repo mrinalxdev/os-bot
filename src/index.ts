@@ -16,7 +16,7 @@ if (!owner || !repo || !token) {
 
 const bot = new OsBot(owner, repo, token);
 async function main() {
-  const issueNumber = 1; // Change this to the issue number you want to analyze
+  const issueNumber = 2; // Change this to the issue number you want to analyze
 
   console.log("Analyzing issue...");
   const analysis = await bot.analyzeIssue(issueNumber);
@@ -29,6 +29,11 @@ async function main() {
   console.log("\nPrioritizing issue...");
   const priority = await bot.prioritizeIssue(issueNumber);
   console.log("Suggested priority:", priority);
+  const htmlFilename = await bot.generateHtmlReport(issueNumber);
+  console.log(`Html report generated : ${htmlFilename}`);
+  console.log(
+    "Analysis complete. Open the HTML file in your browser to view the report.",
+  );
 }
 
 main().catch(console.error);
