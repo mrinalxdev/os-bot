@@ -1,4 +1,7 @@
 import axios from "axios";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import dotenv from "dotenv";
+dotenv.config();
 
 interface Issue {
   title: string;
@@ -12,37 +15,91 @@ interface Issue {
 export class OsBot {
   private apiUrl: string;
   private token: string;
+  private genAI: GoogleGenerativeAI;
 
   constructor(owner: string, repo: string, token: string) {
     this.apiUrl = `https://api.github.com/repos/${owner}/${repo}`;
     this.token = token;
+    this.genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
   }
   async analyzeIssue(issueNumber: number): Promise<string> {
     try {
       const issue = await this.fetchIssue(issueNumber);
-      return this.generateAnalysis(issue);
+      const analysis = this.generateAnalysis(issue);
+      const aiInsights = await this.getAIInsights(issue);
+      return analysis + aiInsights;
     } catch (error) {
-      console.error("Error analyzing issue :", error);
+      console.error("Error analyzing issue:", error);
       return "Unable to analyze the issue at this time.";
     }
   }
 
   private async fetchIssue(issueNumber: number): Promise<Issue> {
-    const response = await axios.get(`${this.apiUrl}/issues/${issueNumber}`, {
-      headers: {
-        Authorization: `token ${this.token}`,
-        Accept: "applicatio",
-      },
-    });
-    return response.data;
+    try {
+      const response = await axios.get(`${this.apiUrl}/issues/${issueNumber}`, {
+        headers: {
+          Authorization: `token ${this.token}`,
+          Accept: "application/vnd.github.v3+json",
+        },
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching issue:", error);
+      throw new Error("Failed to fetch issue data");
+    }
+  }
+
+  private async getAIInsights(issue: Issue): Promise<string> {
+    const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+
+    const prompt = `
+      Analyze the following GitHub issue and provide insights:
+      Title: ${issue.title}
+      Description: ${issue.body}
+
+      Please provide:
+      1. A brief summary of the issue (2-3 sentences)
+      2. Potential root causes or factors contributing to the issue
+      3. A blueprint or approach to solve the issue (3-5 steps)
+      4. Any additional recommendations or best practices relevant to this type of issue
+      `;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+
+    return `\nAI Insights:\n${text}\n`;
+  }
+  async suggestLabels(issueNumber: number): Promise<string[]> {
+    const issue = await this.fetchIssue(issueNumber);
+    const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+
+    const prompt = `
+      Based on the following GitHub issue, suggest appropriate labels:
+      Title: ${issue.title}
+      Description: ${issue.body}
+
+      Provide a list of 3-5 relevant labels, each on a new line.
+      `;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+
+    return text.split("\n").filter((label) => label.trim() !== "");
   }
 
   private generateAnalysis(issue: Issue): string {
-    let analysis = `Issue #${issue.number}: ${issue.title}\n\n`;
-    analysis += `Created by : ${issue.user.login}\n`;
-    analysis += `Created at : ${new Date(issue.created_at).toLocaleString()}\n\n`;
+    if (!issue) {
+      return "Unable to analyze the issue: No issue data available.";
+    }
 
-    if (issue.labels.length > 0) {
+    let analysis = `Issue #${issue.number}: ${issue.title}\n\n`;
+    analysis += `Created by: ${issue.user?.login || "Unknown"}\n`;
+    analysis += `Created at: ${new Date(issue.created_at).toLocaleString()}\n\n`;
+
+    // Analyze labels
+    if (issue.labels && issue.labels.length > 0) {
       analysis += "Labels:\n";
       issue.labels.forEach((label) => {
         analysis += `- ${label.name}\n`;
@@ -50,36 +107,58 @@ export class OsBot {
       analysis += "\n";
     }
 
-    // analyzing body contents, first extracting the codeblocks
-    // than extracting the mentions
-    // TODO : func detecCodeLanguage and func provideSuggestions
-    const bodyLines = issue.body.split("\n");
-    const codeBlocks = this.extractCodeBlock(bodyLines);
-    const mentions = this.extractMentions(issue.body);
+    // Analyze body content
+    if (issue.body) {
+      const bodyLines = issue.body.split("\n");
+      const codeBlocks = this.extractCodeBlock(bodyLines);
+      const mentions = this.extractMentions(issue.body);
 
-    analysis += `Issue Description:\n${this.summarizeBody(bodyLines)}\n\n`;
+      analysis += `Issue Description:\n${this.summarizeBody(bodyLines)}\n\n`;
 
-    if (codeBlocks.length > 0) {
-      analysis += `Code Blocks Found : ${codeBlocks.length}\n`;
-      analysis +=
-        "Languages detected : " +
-        this.detecCodeLanguages(codeBlocks).join(", ") +
-        "\n\n";
+      if (codeBlocks.length > 0) {
+        analysis += `Code Blocks Found: ${codeBlocks.length}\n`;
+        analysis +=
+          "Languages detected: " +
+          this.detectCodeLanguages(codeBlocks).join(", ") +
+          "\n\n";
+      }
+
+      if (mentions.length > 0) {
+        analysis += "Mentions:\n";
+        mentions.forEach((mention) => {
+          analysis += `- ${mention}\n`;
+        });
+        analysis += "\n";
+      }
+    } else {
+      analysis += "No description provided for this issue.\n\n";
     }
 
-    if (mentions.length > 0) {
-      analysis += "Mention:\n";
-      mentions.forEach((mention) => {
-        analysis += `-${mention}\n`;
-      });
-      analysis += "\n";
-    }
     analysis += this.provideSuggestions(issue);
-
     return analysis;
   }
 
+  async prioritizeIssue(issueNumber: number): Promise<string> {
+    const issue = await this.fetchIssue(issueNumber);
+    const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+
+    const prompt = `
+      Analyze the following GitHub issue and suggest a priority level (Low, Medium, High, Critical):
+      Title: ${issue.title}
+      Description: ${issue.body}
+
+      Provide the suggested priority level and a brief explanation for the choice.
+      `;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text();
+  }
+
   private summarizeBody(bodyLines: string[]): string {
+    if (!bodyLines || bodyLines.length === 0) {
+      return "No description available.";
+    }
     return bodyLines.slice(0, 5).join("\n").substring(0, 200) + "...";
   }
 
@@ -132,15 +211,20 @@ export class OsBot {
   private provideSuggestions(issue: Issue): string {
     let suggestions = "Suggestions:\n";
 
-    if (issue.body.length < 50) {
+    if (!issue.body) {
       suggestions +=
-        "- The issue description is quite short. Consider adding more details . \n";
-    }
-    if (!this.extractCodeBlock(issue.body.split("\n")).length) {
+        "- The issue has no description. Consider adding details about the problem or feature request.\n";
+    } else if (issue.body.length < 50) {
       suggestions +=
-        "- No code blocks found. If applicable, consider adding relevant code snippets. \n";
+        "- The issue description is quite short. Consider adding more details.\n";
     }
-    if (!issue.labels.length) {
+
+    if (!issue.body || !this.extractCodeBlock(issue.body.split("\n")).length) {
+      suggestions +=
+        "- No code blocks found. If applicable, consider adding relevant code snippets.\n";
+    }
+
+    if (!issue.labels || issue.labels.length === 0) {
       suggestions +=
         "- No labels applied. Adding appropriate labels can help categorize the issue.\n";
     }
